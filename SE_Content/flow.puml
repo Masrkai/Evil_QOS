@@ -1,0 +1,61 @@
+@startuml
+title Evillimiter Workflow (ARP Spoofing)
+
+start
+
+:Start Tool;
+note right: User initiates Evillimiter\n(e.g., command line)
+
+:Gather Network Information;
+note right: Determine local IP,\nsubnet mask, gateway IP
+
+:Discover Active Hosts;
+note right: Scan network (e.g., ping sweep,\nnmap) to find live IP addresses
+repeat
+  :Select Target Device(s);
+  note right: User chooses one or more\ndiscovered IP addresses to limit
+repeat while (More targets?)
+
+:Obtain Required MAC Addresses;
+note right: Send ARP requests to get\nMAC addresses for:\n- Target(s)\n- Gateway
+
+:Enable IP Forwarding (Attacker Machine);
+note right: Configure attacker OS to\nforward packets (temporarily act as router)\n(Linux: echo 1 > /proc/sys/net/ipv4/ip_forward)
+
+:Start ARP Spoofing Loop;
+note right: Continuously send spoofed\nARP replies in background
+
+repeat
+  :Send Spoofed ARP to Target(s);
+  note right: Tell Target(s):\n"Gateway IP is at Attacker MAC"
+
+  :Send Spoofed ARP to Gateway;
+  note right: Tell Gateway:\n"Target IP(s) is at Attacker MAC"
+
+  :Delay/Sleep;
+  note right: Wait for a short interval\nbefore sending next set of spoofs
+repeat while (Attack Active?)
+
+:Intercept & Analyze Traffic;
+note right: Packets between Target(s)\nand Gateway now flow through\nAttacker's machine
+
+if (Limitation Type?) then (Drop)
+  :Drop Intercepted Packets;
+  note right: Discard packets instead\nof forwarding them.\nTarget(s) lose connectivity.
+elseif (Limitation Type?) then (Bandwidth)
+  :Apply Bandwidth Limiting;
+  note right: Queue packets and forward\nat a reduced rate.\nTarget(s) experience slow speed.
+else (Other)
+  :Apply Other Limitations;
+  note right: Filter by port, protocol,\ndestination, etc.
+endif
+
+:Forward Allowed Packets (If Applicable);
+note right: Modify packet headers\n(Src/Dst MAC) and send\npackets to correct destination\n(Gateway <-> Target)
+
+:Stop Signal Received?;
+note right: Check for user command\nto stop the attack
+stop
+
+end
+@enduml

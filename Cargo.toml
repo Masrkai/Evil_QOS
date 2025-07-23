@@ -1,0 +1,24 @@
+[package]
+name = "Evil_QOS"
+version = "0.1.0"
+edition = "2024" # Changed to 2021 as 2024 might not be stable yet
+
+[dependencies]
+# Core packet manipulation library
+pnet = "0.35" # Check crates.io for the latest stable version
+
+# Asynchronous runtime
+tokio = { version = "1.46.1", features = ["full"] } # "full" includes most Tokio features
+
+# Command Line Argument Parsing
+clap = { version = "4.5.41", features = ["derive"] } # "derive" enables easy struct-based parsing
+
+# Logging facade and a simple logger
+log = "0.4.27"
+env_logger = "0.11.8" # Check for the latest compatible version
+
+# Utilities for handling IP networks (CIDR, IP ranges)
+ipnetwork = "0.21.1" # Check for the latest stable version
+
+# Utilities for handling MAC addresses
+macaddr = "1.0.1" # Check for the latest stable version
