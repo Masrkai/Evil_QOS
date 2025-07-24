@@ -244,6 +244,7 @@ dependencies = [
  "governor",
  "if-addrs",
  "ipnetwork 0.21.1",
+ "libc",
  "log",
  "macaddr",
  "nix",
