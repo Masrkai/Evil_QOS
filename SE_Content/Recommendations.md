@@ -20,9 +20,9 @@
 *   **Helper Crate:**
     *   **`ipnetwork` or `cidr`:** Extremely useful for parsing subnet notations (e.g., `192.168.1.0/24`) and iterating through IP addresses within that range for scanning purposes.
 
-**4. Command-Line Interface (CLI) Parsing:**
+**4. Command-Line Interface (tui) Parsing:**
 
-*   **`clap`:** The standard and most feature-rich crate for building CLIs in Rust.
+*   **`clap`:** The standard and most feature-rich crate for building tuis in Rust.
     *   **Why:** Easily define command-line arguments (target IPs, interface, bandwidth limit, mode - drop/limit, etc.), subcommands, and generate help messages. Integrates well with async code.
 
 **5. Logging:**
@@ -43,7 +43,7 @@
 
 *   **Packet Manipulation:** `libpnet`
 *   **Async Runtime:** `tokio`
-*   **CLI Parsing:** `clap`
+*   **tui Parsing:** `clap`
 *   **Logging:** `log` + `env_logger`
 *   **IP/MAC Handling:** `ipnetwork`, `cidr`, `macaddr`
 *   **Core Discovery:** `std::net` + `tokio` + `libpnet` (for raw packet scans)

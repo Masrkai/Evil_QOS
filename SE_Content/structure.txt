@@ -1,13 +1,28 @@
 Evil_QOS/
 ├── Cargo.toml
+├── README.md
 ├── src/
-│   ├── main.rs
-│   ├── cli.rs
-│   ├── network/
-│   │   ├── mod.rs
-│   │   ├── discovery.rs
-│   │   └── arp.rs
-│   └── limiter/
-│       ├── mod.rs
-│       └── qos.rs
-└── README.md (optional)
+│   ├── main.rs                    // Entry point
+│   ├── common/
+│   │   ├── mod.rs                 // Module declaration for `common`
+│   │   └── globals.rs             // Global constants/settings
+│   ├── console/
+│   │   ├── mod.rs                 // Module declaration for `console`
+│   │   ├── banner.rs              // Display banner
+│   │   ├── chart.rs               // Display host information chart
+│   │   ├── io.rs                  // Input/Output utilities
+│   │   └── shell.rs               // Interactive shell handling
+│   ├── menus/
+│   │   ├── mod.rs                 // Module declaration for `menus`
+│   │   ├── main_menu.rs           // Main menu logic
+│   │   ├── menu.rs                // Base menu structure/traits
+│   │   └── parser.rs              // Command parsing logic
+│   └── networking/
+│       ├── mod.rs                 // Module declaration for `networking`
+│       ├── host.rs                // `Host` struct and related logic
+│       ├── limit.rs               // Core logic for applying limitations (drop, bandwidth, etc.)
+│       ├── monitor.rs             // Traffic monitoring logic
+│       ├── scan.rs                // Network scanning/discovery logic
+│       ├── spoof.rs               // ARP spoofing implementation
+│       ├── utils.rs               // Networking utilities (IP/MAC handling, etc.)
+│       └── watch.rs               // Host watching/updating logic

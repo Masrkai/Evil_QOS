@@ -1,51 +1,62 @@
-// src/main.rs
+//! Evil QoS - Network Traffic Shaping Tool
 
-use clap::Parser;
-use env_logger; // Import the logger backend
-use log::{info, warn, error}; // Import log macros
+mod common;
+mod console;
+mod menus;
+mod networking;
 
-mod cli;
-mod network;
-mod limiter;
+use console::{display_banner, clear_screen};
+use console::shell::InteractiveShell;
+use menus::{MainMenu, CommandParser};
 
-use cli::Cli;
+/// Main entry point for the application
+fn main() {
+    // Setup panic handler for better error messages
+    setup_panic_handler();
+    
+    // For now, always start interactive mode
+    run_interactive_mode();
+}
 
-#[tokio::main]
-async fn main() {
-    // Initialize the logger
-    // You can control log level via RUST_LOG environment variable
-    // e.g., RUST_LOG=debug cargo run
-    env_logger::init();
-
-    info!("Starting Evil_QOS...");
-
-    // Parse command-line arguments using Clap
-    let cli_args = Cli::parse();
-
-    info!("Parsed CLI arguments: {:?}", cli_args); // Debug print, remove later
-
-    // TODO: Add logic to validate arguments (e.g., target IPs, interface existence)
-
-    // TODO: Add logic to get network interface details based on cli_args.interface
-    // This might involve calling functions from `network` module
-
-    // TODO: Add logic for host discovery if needed (network::discovery module)
-
-    // TODO: Add logic to resolve target IPs to MAC addresses (network::arp module)
-
-    // TODO: Add logic to enable IP forwarding on the attacker machine (platform specific)
-
-    // TODO: Add logic to start the ARP spoofing loop (network::arp module)
-
-    // TODO: Add logic to start the traffic interception and limiting (limiter::qos module)
-
-    info!("Evil_QOS initialized. Press Ctrl+C to stop.");
-    // Keep the application running (placeholder)
-    // In reality, the spoofing loop and traffic handling will keep it busy.
-    // You might use a Tokio signal handler here to gracefully shut down.
-    loop {
-        tokio::time::sleep(tokio::time::Duration::from_secs(60)).await;
-        // This is just a placeholder to keep the main task alive.
-        // Real implementation will have the spoofing/limiting running concurrently.
+/// Run the application in interactive TUI mode
+fn run_interactive_mode() {
+    // Check for root privileges (required for packet manipulation)
+    if !is_root() {
+        eprintln!("{}{}", common::globals::COLOR_RED, common::globals::ERROR_PERMISSION_DENIED);
+        eprintln!("{}Please run with sudo privileges.", common::globals::COLOR_RESET);
+        std::process::exit(1);
     }
+    
+    // Display banner
+    clear_screen();
+    display_banner();
+    
+    // Start interactive shell
+    let mut shell = InteractiveShell::new();
+    shell.start();
+}
+
+/// Check if the application is running with root privileges
+fn is_root() -> bool {
+    unsafe { Uid::effective().is_root() == 0 }
+}
+
+/// Setup custom panic handler for better error messages
+fn setup_panic_handler() {
+    std::panic::set_hook(Box::new(|panic_info| {
+        eprintln!(
+            "{}{}An unexpected error occurred:{}",
+            common::globals::COLOR_RED,
+            common::globals::COLOR_BOLD,
+            common::globals::COLOR_RESET
+        );
+        
+        eprintln!(
+            "{}Please report this issue with the following information:{}",
+            common::globals::COLOR_YELLOW,
+            common::globals::COLOR_RESET
+        );
+        
+        eprintln!("{}", panic_info);
+    }));
 }

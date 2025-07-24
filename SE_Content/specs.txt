@@ -1,0 +1,34 @@
+The program must be:
+1 - Efficient & Memory Safe (provided by rust)
+
+2 - Extremely fast in
+   1 - Minimal overhead during spoofing
+   2 - High packet processing/transfer rate
+
+3 - Network Scope & Discovery
+    1 - Automatic detection of the local network interface, IP, and subnet mask.
+    2 - Methods for host discovery (e.g., ICMP ping sweep, ARP scan, port scan).
+    3 - Handling of hosts on different subnets (if applicable).
+
+4 - Able to selectively make victim internet bandwidth speed
+    1 - 0 or None (connected but without internet bandwidth)
+    2 - Number set by Attacker
+    3 - Full Speed
+
+5 - The program should be able to cherry pick users
+    1 - one by one
+    2 - actively scanning and limiting the entire or a group og the network range
+        to a set value by Attacker
+
+6 - The custom cap value for bandwidth should be expressed bu user natural language
+    (Not strictly typed) expressing that it's not as in
+    1 - 10 Kbit
+    2 - 200 Kbits
+    3 - 10 Mb
+    4 - 4 MB/S
+
+Target System: Linux
+
+
+user interface: TUI
+
