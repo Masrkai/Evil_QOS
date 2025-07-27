@@ -1,65 +1,72 @@
+use colored::*;
+use lazy_static::lazy_static;
+use regex::Regex;
 use std::io::{self, Write};
+use std::process::Command;
 
-/// Clear the terminal screen
-pub fn clear_screen() {
-    // ANSI escape code to clear screen and move cursor to top-left
-    print!("\x1B[2J\x1B[1;1H");
-    io::stdout().flush().unwrap();
+pub struct IO;
+
+lazy_static! {
+    static ref ANSI_CSI_RE: Regex = Regex::new(r"\x1b\[[0-9;]*[a-zA-Z]").unwrap();
 }
 
-/// Get input from the user
-pub fn get_user_input(prompt: &str) -> String {
-    print!("{}", prompt);
-    io::stdout().flush().unwrap();
-    
-    let mut input = String::new();
-    io::stdin().read_line(&mut input).expect("Failed to read line");
-    input.trim().to_string()
-}
+impl IO {
+    // Mutable global flag to toggle color output
+    pub static mut COLORLESS: bool = false;
 
-/// Print an informational message
-pub fn print_info(message: &str) {
-    println!("[*] {}", message);
-}
+    pub fn initialize(colorless: bool) {
+        unsafe {
+            IO::COLORLESS = colorless;
+        }
+    }
 
-/// Print a success message
-pub fn print_success(message: &str) {
-    println!("[+] {}", message);
-}
+    pub fn print(text: &str, end: &str, flush: bool) {
+        let output = if unsafe { IO::COLORLESS } {
+            IO::remove_colors(text)
+        } else {
+            text.to_string()
+        };
 
-/// Print an error message
-pub fn print_error(message: &str) {
-    eprintln!("[-] {}", message);
-}
+        print!("{}{}", output, end);
+        if flush {
+            io::stdout().flush().unwrap();
+        }
+    }
 
-/// Print a warning message
-pub fn print_warning(message: &str) {
-    println!("[!] {}", message);
-}
+    pub fn ok(text: &str) {
+        let prefix = format!("{}OK{}   ", Style::Bright.fg(Color::Green), Style::Reset);
+        IO::print(&(prefix + text), "\n", false);
+    }
 
-/// Display a progress bar
-pub fn display_progress(current: usize, total: usize, label: &str) {
-    let percentage = if total > 0 {
-        (current as f64 / total as f64) * 100.0
-    } else {
-        0.0
-    };
-    
-    let bar_width = 40;
-    let filled = (percentage / 100.0 * bar_width as f64) as usize;
-    let empty = bar_width - filled;
-    
-    let bar: String = std::iter::repeat('=')
-        .take(filled)
-        .chain(std::iter::repeat(' '))
-        .take(bar_width)
-        .collect();
-    
-    print!("\r{} [{}] {:.1}%", label, bar, percentage);
-    io::stdout().flush().unwrap();
-}
+    pub fn error(text: &str) {
+        let prefix = format!("{}ERR{}  ", Style::Bright.fg(Color::Red), Style::Reset);
+        IO::print(&(prefix + text), "\n", false);
+    }
 
-/// Finish the progress bar display
-pub fn finish_progress(label: &str) {
-    println!("\r{} [========================================] 100.0%", label);
+    pub fn spacer() {
+        IO::print("", "\n", false);
+    }
+
+    pub fn input(prompt: &str) -> String {
+        let prompt_text = if unsafe { IO::COLORLESS } {
+            IO::remove_colors(prompt)
+        } else {
+            prompt.to_string()
+        };
+
+        print!("{}", prompt_text);
+        io::stdout().flush().unwrap();
+
+        let mut buffer = String::new();
+        io::stdin().read_line(&mut buffer).unwrap();
+        buffer.trim_end().to_string()
+    }
+
+    pub fn clear() {
+        let _ = Command::new("clear").status();
+    }
+
+    fn remove_colors(text: &str) -> String {
+        ANSI_CSI_RE.replace_all(text, "").to_string()
+    }
 }

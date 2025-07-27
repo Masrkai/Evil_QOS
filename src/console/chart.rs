@@ -1,68 +1,94 @@
-use crate::networking::Host;
-use std::collections::HashMap;
+use crate::io::IO;
 
-/// Display a chart of host information
-pub fn display_host_chart(hosts: &[Host], bandwidth_data: &HashMap<String, u64>) {
-    if hosts.is_empty() {
-        println!("No hosts to display");
-        return;
-    }
-
-    println!("\n{:=<80}", "");
-    println!("{}{:^78}{}", "|", "Network Hosts Information", "|");
-    println!("{:=<80}", "");
-    
-    // Header
-    println!(
-        "{:<15} {:<17} {:<20} {:<15} {:<8}",
-        "IP Address", "MAC Address", "Hostname", "Status", "Speed"
-    );
-    println!("{:-<80}", "");
-    
-    // Host data
-    for host in hosts {
-        let status = if host.is_active() { "Active" } else { "Inactive" };
-        let bandwidth = bandwidth_data.get(&host.ip).copied().unwrap_or(0);
-        let speed = format_bandwidth(bandwidth);
-        
-        println!(
-            "{:<15} {:<17} {:<20} {:<15} {:<8}",
-            host.ip,
-            host.mac.as_deref().unwrap_or("Unknown"),
-            host.hostname.as_deref().unwrap_or("Unknown"),
-            status,
-            speed
-        );
-    }
-    
-    println!("{:=<80}\n", "");
+#[derive(Debug)]
+pub struct BarValue {
+    value: f64,
+    prefix: String,
+    suffix: String,
 }
 
-/// Format bandwidth in a human-readable way
-fn format_bandwidth(bytes_per_sec: u64) -> String {
-    if bytes_per_sec == 0 {
-        "0 B/s".to_string()
-    } else if bytes_per_sec < 1000 {
-        format!("{} B/s", bytes_per_sec)
-    } else if bytes_per_sec < 1_000_000 {
-        format!("{:.1} KB/s", bytes_per_sec as f64 / 1000.0)
-    } else if bytes_per_sec < 1_000_000_000 {
-        format!("{:.1} MB/s", bytes_per_sec as f64 / 1_000_000.0)
-    } else {
-        format!("{:.1} GB/s", bytes_per_sec as f64 / 1_000_000_000.0)
-    }
+pub struct BarChart {
+    draw_char: char,
+    max_bar_length: usize,
+    data: Vec<BarValue>,
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+impl BarChart {
+    pub fn new(draw_char: char, max_bar_length: usize) -> Self {
+        BarChart {
+            draw_char,
+            max_bar_length,
+            data: Vec::new(),
+        }
+    }
 
-    #[test]
-    fn test_format_bandwidth() {
-        assert_eq!(format_bandwidth(0), "0 B/s");
-        assert_eq!(format_bandwidth(500), "500 B/s");
-        assert_eq!(format_bandwidth(1500), "1.5 KB/s");
-        assert_eq!(format_bandwidth(2_500_000), "2.5 MB/s");
-        assert_eq!(format_bandwidth(3_000_000_000), "3.0 GB/s");
+    pub fn default() -> Self {
+        Self::new('▇', 30)
+    }
+
+    pub fn add_value(&mut self, value: f64, prefix: &str, suffix: &str) {
+        self.data.push(BarValue {
+            value,
+            prefix: prefix.to_string(),
+            suffix: suffix.to_string(),
+        });
+    }
+
+    pub fn get(&mut self, reverse: bool) -> String {
+        if self.data.is_empty() {
+            return String::new();
+        }
+
+        self.data.sort_by(|a, b| {
+            if reverse {
+                b.value.partial_cmp(&a.value)
+            } else {
+                a.value.partial_cmp(&b.value)
+            }
+            .unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        let max_value = if reverse {
+            self.data[0].value
+        } else {
+            self.data.last().unwrap().value
+        };
+
+        let max_prefix_length = self
+            .data
+            .iter()
+            .map(|d| d.prefix.len())
+            .max()
+            .unwrap_or(0)
+            + 1;
+
+        let mut chart = String::new();
+
+        for item in &self.data {
+            let bar_length = if max_value == 0.0 {
+                0
+            } else {
+                Self::remap(item.value, 0.0, max_value, 0.0, self.max_bar_length as f64).round() as usize
+            };
+
+            let line = format!(
+                "{}{}: {} {}\n",
+                item.prefix,
+                " ".repeat(max_prefix_length - item.prefix.len()),
+                self.draw_char.to_string().repeat(bar_length),
+                item.suffix
+            );
+            chart.push_str(&line);
+        }
+
+        if chart.ends_with('\n') {
+            chart.pop();
+        }
+
+        chart
+    }
+
+    fn remap(n: f64, old_min: f64, old_max: f64, new_min: f64, new_max: f64) -> f64 {
+        ((n - old_min) * (new_max - new_min)) / (old_max - old_min) + new_min
     }
 }
