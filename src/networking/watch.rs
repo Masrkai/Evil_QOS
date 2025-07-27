@@ -1,112 +1,125 @@
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::collections::{HashMap, HashSet};
+use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::Duration;
-use crate::networking::host::Host;
-use crate::networking::scan::discover_hosts;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-/// Watch for changes in network hosts
+use crate::host::Host;
+
 pub struct HostWatcher {
-    running: Arc<AtomicBool>,
-    handle: Option<thread::JoinHandle<()>>,
+    scanner: Arc<dyn HostScanner + Send + Sync>,
+    reconnection_callback: Arc<dyn Fn(Host, Host) + Send + Sync>,
+    hosts: Arc<Mutex<HashSet<Host>>>,
+    interval: Arc<Mutex<u64>>, // in seconds
+    iprange: Arc<Mutex<Option<String>>>,
+    log_list: Arc<Mutex<Vec<HostReconnectLog>>>,
+    running: Arc<Mutex<bool>>,
+}
+
+#[derive(Clone)]
+pub struct HostReconnectLog {
+    pub old: Host,
+    pub new: Host,
+    pub time: String,
+}
+
+pub trait HostScanner {
+    fn scan_for_reconnects(
+        &self,
+        hosts: HashSet<Host>,
+        iprange: Option<String>,
+    ) -> HashMap<Host, Host>;
 }
 
 impl HostWatcher {
-    /// Create a new host watcher
-    pub fn new() -> Self {
+    pub fn new(
+        scanner: Arc<dyn HostScanner + Send + Sync>,
+        reconnection_callback: Arc<dyn Fn(Host, Host) + Send + Sync>,
+    ) -> Self {
         HostWatcher {
-            running: Arc::new(AtomicBool::new(false)),
-            handle: None,
+            scanner,
+            reconnection_callback,
+            hosts: Arc::new(Mutex::new(HashSet::new())),
+            interval: Arc::new(Mutex::new(45)),
+            iprange: Arc::new(Mutex::new(None)),
+            log_list: Arc::new(Mutex::new(Vec::new())),
+            running: Arc::new(Mutex::new(false)),
         }
     }
-    
-    /// Start watching for host changes
-    pub fn start<F>(&mut self, callback: F) -> Result<(), String>
-    where
-        F: Fn(Vec<Host>, Vec<Host>) + Send + 'static, // (new_hosts, disappeared_hosts)
-    {
-        if self.running.load(Ordering::Relaxed) {
-            return Err("Watcher already running".to_string());
-        }
-        
+
+    pub fn interval(&self) -> u64 {
+        *self.interval.lock().unwrap()
+    }
+
+    pub fn set_interval(&self, value: u64) {
+        *self.interval.lock().unwrap() = value;
+    }
+
+    pub fn iprange(&self) -> Option<String> {
+        self.iprange.lock().unwrap().clone()
+    }
+
+    pub fn set_iprange(&self, value: Option<String>) {
+        *self.iprange.lock().unwrap() = value;
+    }
+
+    pub fn hosts(&self) -> HashSet<Host> {
+        self.hosts.lock().unwrap().clone()
+    }
+
+    pub fn log_list(&self) -> Vec<HostReconnectLog> {
+        self.log_list.lock().unwrap().clone()
+    }
+
+    pub fn add(&self, host: Host) {
+        host.watched = true;
+        self.hosts.lock().unwrap().insert(host);
+    }
+
+    pub fn remove(&self, host: &Host) {
+        self.hosts.lock().unwrap().remove(host);
+    }
+
+    pub fn start(&self) {
         let running = Arc::clone(&self.running);
-        
-        self.running.store(true, Ordering::Relaxed);
-        let handle = thread::spawn(move || {
-            let mut previous_hosts = Vec::new();
-            
-            while running.load(Ordering::Relaxed) {
-                match discover_hosts() {
-                    Ok(current_hosts) => {
-                        // Find new hosts
-                        let new_hosts: Vec<Host> = current_hosts
-                            .iter()
-                            .filter(|host| !previous_hosts.contains(host))
-                            .cloned()
-                            .collect();
-                        
-                        // Find disappeared hosts
-                        let disappeared_hosts: Vec<Host> = previous_hosts
-                            .iter()
-                            .filter(|host| !current_hosts.contains(host))
-                            .cloned()
-                            .collect();
-                        
-                        // Call callback if there are changes
-                        if !new_hosts.is_empty() || !disappeared_hosts.is_empty() {
-                            callback(new_hosts, disappeared_hosts);
-                        }
-                        
-                        previous_hosts = current_hosts;
-                    }
-                    Err(e) => {
-                        eprintln!("Error discovering hosts: {}", e);
+        let hosts = Arc::clone(&self.hosts);
+        let interval = Arc::clone(&self.interval);
+        let iprange = Arc::clone(&self.iprange);
+        let scanner = Arc::clone(&self.scanner);
+        let callback = Arc::clone(&self.reconnection_callback);
+        let log_list = Arc::clone(&self.log_list);
+
+        *running.lock().unwrap() = true;
+
+        thread::spawn(move || {
+            while *running.lock().unwrap() {
+                let hosts_copy = hosts.lock().unwrap().clone();
+
+                if !hosts_copy.is_empty() {
+                    let iprange_val = iprange.lock().unwrap().clone();
+                    let reconnects = scanner.scan_for_reconnects(hosts_copy, iprange_val);
+
+                    for (old_host, new_host) in reconnects {
+                        callback(old_host.clone(), new_host.clone());
+                        let log = HostReconnectLog {
+                            old: old_host,
+                            new: new_host,
+                            time: format_time(SystemTime::now()),
+                        };
+                        log_list.lock().unwrap().push(log);
                     }
                 }
-                
-                // Check every 5 seconds
-                thread::sleep(Duration::from_secs(5));
+
+                thread::sleep(Duration::from_secs(*interval.lock().unwrap()));
             }
         });
-        
-        self.handle = Some(handle);
-        Ok(())
     }
-    
-    /// Stop watching
-    pub fn stop(&mut self) {
-        if self.running.load(Ordering::Relaxed) {
-            self.running.store(false, Ordering::Relaxed);
-            
-            if let Some(handle) = self.handle.take() {
-                let _ = handle.join();
-            }
-        }
+
+    pub fn stop(&self) {
+        *self.running.lock().unwrap() = false;
     }
 }
 
-impl Drop for HostWatcher {
-    fn drop(&mut self) {
-        self.stop();
-    }
-}
-
-/// Start watching hosts (simplified interface)
-pub fn watch_hosts<F>(callback: F) -> Result<(), String>
-where
-    F: Fn(Vec<Host>, Vec<Host>) + Send + 'static,
-{
-    static mut WATCHER: Option<HostWatcher> = None;
-    
-    unsafe {
-        if WATCHER.is_none() {
-            WATCHER = Some(HostWatcher::new());
-        }
-        
-        if let Some(ref mut watcher) = WATCHER {
-            watcher.start(callback)
-        } else {
-            Err("Failed to create watcher".to_string())
-        }
-    }
+fn format_time(system_time: SystemTime) -> String {
+    let datetime: chrono::DateTime<chrono::Local> = system_time.into();
+    datetime.format("%Y-%m-%d %H:%M %p").to_string()
 }

@@ -1,146 +1,96 @@
-use std::net::{Ipv4Addr, IpAddr};
 use std::time::Duration;
-use pnet::datalink;
-use pnet::packet::arp::{ArpHardwareTypes, ArpOperations, ArpPacket, MutableArpPacket};
-use pnet::packet::ethernet::{EtherTypes, EthernetPacket, MutableEthernetPacket};
-use pnet::packet::{MutablePacket, Packet};
-use pnet::util::MacAddr;
-use crate::networking::host::Host;
-use crate::networking::utils::get_network_info;
+use tokio::task;
+use async_arp::{Client, ClientConfigBuilder, ProbeStatus};
+use crate::host::Host;
+use crate::io::IO;
+use std::collections::HashMap;
 
-/// Discover hosts on the local network using ARP scanning
-pub fn discover_hosts() -> Result<Vec<Host>, String> {
-    let (interface_name, _, network) = get_network_info()?;
-    let interfaces = datalink::interfaces();
-    let interface = interfaces.into_iter()
-        .find(|iface| iface.name == interface_name)
-        .ok_or("Interface not found")?;
-    
-    let (mut tx, mut rx) = match datalink::channel(&interface, Default::default()) {
-        Ok(datalink::Channel::Ethernet(tx, rx)) => (tx, rx),
-        Ok(_) => return Err("Unhandled channel type".to_string()),
-        Err(e) => return Err(format!("Error creating channel: {}", e)),
-    };
-    
-    let my_mac = interface.mac.ok_or("Interface MAC not found")?;
-    let mut hosts = Vec::new();
-    
-    // Scan common IPs in the subnet
-    for i in 1..255 {
-        let target_ip = Ipv4Addr::from(u32::from(network).wrapping_add(i));
-        send_arp_request(&mut tx, my_mac, target_ip)?;
-        
-        // Wait for response with a small delay
-        std::thread::sleep(Duration::from_millis(10));
-        
-        // Try to receive response (non-blocking)
-        if let Ok(host) = receive_arp_reply(&mut rx, target_ip) {
-            hosts.push(host);
+pub struct HostScanner {
+    interface: String,
+    iprange: Vec<String>,
+    batch_size: usize,
+    resolve_timeout: Duration,
+}
+
+impl HostScanner {
+    pub fn new(interface: &str, iprange: Vec<String>) -> Self {
+        HostScanner {
+            interface: interface.to_string(),
+            iprange,
+            batch_size: 75,
+            resolve_timeout: Duration::from_secs_f64(1.0),
         }
     }
-    
-    Ok(hosts)
-}
 
-/// Send an ARP request to a target IP
-fn send_arp_request(
-    tx: &mut Box<dyn datalink::DataLinkSender>,
-    source_mac: MacAddr,
-    target_ip: Ipv4Addr,
-) -> Result<(), String> {
-    let mut ethernet_buffer = [0u8; 42];
-    let mut ethernet_packet = MutableEthernetPacket::new(&mut ethernet_buffer)
-        .ok_or("Failed to create Ethernet packet")?;
-    
-    ethernet_packet.set_destination(MacAddr::broadcast());
-    ethernet_packet.set_source(source_mac);
-    ethernet_packet.set_ethertype(EtherTypes::Arp);
-    
-    let mut arp_buffer = [0u8; 28];
-    let mut arp_packet = MutableArpPacket::new(&mut arp_buffer)
-        .ok_or("Failed to create ARP packet")?;
-    
-    arp_packet.set_hardware_type(ArpHardwareTypes::Ethernet);
-    arp_packet.set_protocol_type(EtherTypes::Ipv4);
-    arp_packet.set_hw_addr_len(6);
-    arp_packet.set_proto_addr_len(4);
-    arp_packet.set_operation(ArpOperations::Request);
-    arp_packet.set_sender_hw_addr(source_mac);
-    
-    // Get the actual IP address of the interface
-    let source_ip = get_interface_ip()?;
-    arp_packet.set_sender_proto_addr(source_ip);
-    
-    arp_packet.set_target_hw_addr(MacAddr::zero());
-    arp_packet.set_target_proto_addr(target_ip);
-    
-    ethernet_packet.set_payload(arp_packet.packet_mut());
-    
-    tx.send_to(ethernet_packet.packet(), None)
-        .map_err(|e| format!("Failed to send ARP request: {:?}", e))?
-        .map_err(|e| format!("Failed to send ARP request: {:?}", e))?;
-    
-    Ok(())
-}
+    pub async fn scan(&self) -> Vec<Host> {
+        let client = Client::new(
+            ClientConfigBuilder::new(&self.interface)
+                .with_response_timeout(Duration::from_secs_f64(1.5))
+                .build()
+                .unwrap(),
+        ).unwrap();
 
-/// Get the IP address of the current interface
-fn get_interface_ip() -> Result<Ipv4Addr, String> {
-    let (interface_name, _, _) = get_network_info()?;
-    let interfaces = datalink::interfaces();
-    let interface = interfaces.into_iter()
-        .find(|iface| iface.name == interface_name)
-        .ok_or("Interface not found")?;
-    
-    for ip in interface.ips {
-        if let IpAddr::V4(ipv4) = ip.ip() {
-            return Ok(ipv4);
-        }
-    }
-    
-    Err("No IPv4 address found for interface".to_string())
-}
+        let mut hosts = Vec::new();
 
-/// Receive an ARP reply and extract host information
-fn receive_arp_reply(
-    rx: &mut Box<dyn datalink::DataLinkReceiver>,
-    expected_ip: Ipv4Addr,
-) -> Result<Host, String> {
-    // Set a short timeout for non-blocking behavior
-    let start = std::time::Instant::now();
-    let timeout = Duration::from_millis(50);
-    
-    while start.elapsed() < timeout {
-        match rx.next() {
-            Ok(packet) => {
-                let ethernet = EthernetPacket::new(packet)
-                    .ok_or("Failed to parse Ethernet packet")?;
-                
-                if ethernet.get_ethertype() != EtherTypes::Arp {
-                    continue; // Skip non-ARP packets
-                }
-                
-                let arp = ArpPacket::new(ethernet.payload())
-                    .ok_or("Failed to parse ARP packet")?;
-                
-                if arp.get_operation() != ArpOperations::Reply {
-                    continue; // Skip non-reply packets
-                }
-                
-                if arp.get_sender_proto_addr() == expected_ip {
-                    return Ok(Host::new(
-                        arp.get_sender_proto_addr(),
-                        arp.get_sender_hw_addr(),
-                        None, // We don't get hostname from ARP
-                    ));
+        for batch in self.iprange.chunks(self.batch_size) {
+            let ips = batch.to_vec();
+            let mut futures = Vec::new();
+
+            for ip in ips {
+                futures.push(client.probe(ip.parse().unwrap()));
+            }
+
+            let results = futures::future::join_all(futures).await;
+
+            for outcome in results.into_iter().flatten() {
+                if outcome.status == ProbeStatus::Occupied {
+                    let mut host = Host::new(
+                        &outcome.ip.to_string(),
+                        &outcome.mac.to_string(),
+                        "",
+                    );
+                    hosts.push(self.resolve_name(host).await);
                 }
             }
-            Err(_) => {
-                // No packet available, continue waiting
-                std::thread::sleep(Duration::from_millis(1));
-                continue;
+
+            IO.print(&format!("Scanned {}/{}\n", hosts.len(), self.iprange.len()), "", true);
+        }
+
+        hosts
+    }
+
+    async fn resolve_name(&self, mut host: Host) -> Host {
+        let ip = host.ip.clone();
+        let result = task::spawn_blocking(move || {
+            std::net::lookup_host((ip.as_str(), 0))
+        }).await;
+
+        if let Ok(Ok(mut addrs)) = result {
+            if let Some(entry) = addrs.next() {
+                // attempt reverse lookup
+                if let Ok((name, _)) = std::net::lookup_addr(&entry.ip()) {
+                    host.name = name;
+                }
             }
         }
+        host
     }
-    
-    Err("Timeout waiting for ARP reply".to_string())
+
+    pub fn scan_for_reconnects(&self, previous: &[Host], current: &[Host]) -> HashMap<&Host, Host> {
+        let mut mac_map: HashMap<String, &Host> = HashMap::new();
+        for h in current {
+            mac_map.insert(h.mac.clone(), h);
+        }
+        let mut reconnected = HashMap::new();
+        for old in previous {
+            if let Some(s) = mac_map.get(&old.mac) {
+                if old.ip != s.ip {
+                    let mut updated = (*s).clone();
+                    updated.name = old.name.clone();
+                    reconnected.insert(old, updated);
+                }
+            }
+        }
+        reconnected
+    }
 }

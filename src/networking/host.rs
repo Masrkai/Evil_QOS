@@ -1,22 +1,74 @@
-use std::net::Ipv4Addr;
-use macaddr::MacAddr6;
+use crate::io::IO;
+use std::fmt;
+use std::hash::{Hash, Hasher};
 
-/// Represents a network host with its identifying information
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone)]
 pub struct Host {
-    pub ip: Ipv4Addr,
-    pub mac: MacAddr6,
-    pub hostname: Option<String>,
+    pub ip: String,
+    pub mac: String,
+    pub name: String,
+    pub spoofed: bool,
+    pub limited: bool,
+    pub blocked: bool,
+    pub watched: bool,
 }
 
 impl Host {
-    /// Create a new Host instance
-    pub fn new(ip: Ipv4Addr, mac: MacAddr6, hostname: Option<String>) -> Self {
-        Host { ip, mac, hostname }
+    pub fn new(ip: &str, mac: &str, name: &str) -> Self {
+        Host {
+            ip: ip.to_string(),
+            mac: mac.to_string(),
+            name: name.to_string(),
+            spoofed: false,
+            limited: false,
+            blocked: false,
+            watched: false,
+        }
     }
-    
-    /// Check if this host is likely the gateway
-    pub fn is_gateway(&self, gateway_ip: Ipv4Addr) -> bool {
-        self.ip == gateway_ip
+
+    pub fn pretty_status(&self) -> String {
+        if self.limited {
+            format!(
+                "{}Limited{}",
+                IO::Fore::LIGHTRED_EX,
+                IO::Style::RESET_ALL
+            )
+        } else if self.blocked {
+            format!("{}Blocked{}", IO::Fore::RED, IO::Style::RESET_ALL)
+        } else {
+            "Free".to_string()
+        }
+    }
+}
+
+// Implement PartialEq for comparison
+impl PartialEq for Host {
+    fn eq(&self, other: &Self) -> bool {
+        self.ip == other.ip
+    }
+}
+
+// Implement Eq because we implement PartialEq
+impl Eq for Host {}
+
+// Implement Hash for use in HashMaps/Sets
+impl Hash for Host {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.ip.hash(state);
+        self.mac.hash(state);
+    }
+}
+
+// Optional: Implement Debug or Display for pretty-printing
+impl fmt::Debug for Host {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "Host(ip={}, mac={}, name={}, status={})",
+            self.ip,
+            self.mac,
+            self.name,
+            self.pretty_status()
+        )
     }
 }
