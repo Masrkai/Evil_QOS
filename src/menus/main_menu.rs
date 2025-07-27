@@ -1,205 +1,180 @@
-use super::menu::{Menu, MenuResult};
-use crate::networking::{Host, NetworkScanner};
 use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
-/// Main menu of the application
-pub struct MainMenu {
-    hosts: Vec<Host>,
-    selected_hosts: HashMap<String, usize>, // IP -> index in hosts
+use crate::host::Host;
+use crate::shell::Shell;
+use crate::globals::{BIN_TC, BIN_IPTABLES};
+
+#[derive(Clone, Copy, PartialEq)]
+pub enum Direction {
+    None = 0,
+    Outgoing = 1,
+    Incoming = 2,
+    Both = 3,
 }
 
-impl MainMenu {
-    pub fn new() -> Self {
-        Self {
-            hosts: Vec::new(),
-            selected_hosts: HashMap::new(),
-        }
-    }
-
-    /// Scan for hosts on the network
-    fn scan_network(&mut self) {
-        match NetworkScanner::new() {
-            Ok(scanner) => {
-                println!("Scanning network...");
-                self.hosts = scanner.discover_hosts();
-                println!("Found {} hosts", self.hosts.len());
-            }
-            Err(e) => {
-                eprintln!("Failed to initialize network scanner: {}", e);
-            }
-        }
-    }
-
-    /// Display all discovered hosts
-    fn display_hosts(&self) {
-        if self.hosts.is_empty() {
-            println!("No hosts discovered. Run scan first.");
-            return;
-        }
-
-        println!("\nDiscovered Hosts:");
-        println!("{:-<60}", "");
-        println!("{:<15} {:<17} {:<20}", "IP Address", "MAC Address", "Hostname");
-        println!("{:-<60}", "");
-
-        for (index, host) in self.hosts.iter().enumerate() {
-            let selected = if self.selected_hosts.contains_key(&host.ip) {
-                "*"
-            } else {
-                " "
-            };
-            println!(
-                "{}{:<14} {:<17} {:<20}",
-                selected,
-                host.ip,
-                host.mac.as_deref().unwrap_or("Unknown"),
-                host.hostname.as_deref().unwrap_or("Unknown")
-            );
-        }
-        println!("{:-<60}\n", "");
-    }
-
-    /// Select a host by IP
-    fn select_host(&mut self, ip: &str) {
-        for (index, host) in self.hosts.iter().enumerate() {
-            if host.ip == ip {
-                self.selected_hosts.insert(ip.to_string(), index);
-                println!("Selected host: {}", ip);
-                return;
-            }
-        }
-        println!("Host with IP {} not found", ip);
-    }
-
-    /// Deselect a host by IP
-    fn deselect_host(&mut self, ip: &str) {
-        if self.selected_hosts.remove(ip).is_some() {
-            println!("Deselected host: {}", ip);
-        } else {
-            println!("Host with IP {} was not selected", ip);
-        }
-    }
-
-    /// Select all hosts
-    fn select_all_hosts(&mut self) {
-        for (index, host) in self.hosts.iter().enumerate() {
-            self.selected_hosts
-                .insert(host.ip.clone(), index);
-        }
-        println!("Selected all {} hosts", self.selected_hosts.len());
-    }
-
-    /// Clear all selections
-    fn clear_selections(&mut self) {
-        self.selected_hosts.clear();
-        println!("Cleared all selections");
-    }
-
-    /// Apply bandwidth limit to selected hosts
-    fn apply_bandwidth_limit(&self, limit: &str) {
-        if self.selected_hosts.is_empty() {
-            println!("No hosts selected. Use 'select' command first.");
-            return;
-        }
-
-        println!("Applying bandwidth limit '{}' to {} hosts...", 
-                 limit, self.selected_hosts.len());
-        
-        // In a real implementation, this would call the networking module
-        // to apply the actual bandwidth limits
-        for ip in self.selected_hosts.keys() {
-            println!("  - Applied to {}", ip);
+impl Direction {
+    pub fn pretty(direction: Direction) -> &'static str {
+        match direction {
+            Direction::Outgoing => "upload",
+            Direction::Incoming => "download",
+            Direction::Both => "upload / download",
+            _ => "-",
         }
     }
 }
 
-impl Menu for MainMenu {
-    fn display(&self) {
-        println!("\n{:=<50}", "");
-        println!("{}{:^48}{}", "|", "Evil QoS - Main Menu", "|");
-        println!("{:=<50}", "");
-        println!("Commands:");
-        println!("  scan                  - Scan network for hosts");
-        println!("  show                  - Show discovered hosts");
-        println!("  select <ip>           - Select a host by IP");
-        println!("  deselect <ip>         - Deselect a host by IP");
-        println!("  select-all            - Select all discovered hosts");
-        println!("  clear                 - Clear all selections");
-        println!("  limit <value>         - Apply bandwidth limit to selected hosts");
-        println!("  help                  - Show this help message");
-        println!("  exit                  - Exit the application");
-        println!("{:=<50}\n", "");
-    }
+pub struct Limiter {
+    interface: String,
+    host_map: Arc<Mutex<HashMap<Host, HostLimitInfo>>>,
+}
 
-    fn title(&self) -> &str {
-        "Main Menu"
-    }
+struct HostLimitInfo {
+    ids: HostLimitIDs,
+    rate: Option<u32>,
+    direction: Direction,
+}
 
-    fn handle_input(&mut self, input: &str) -> MenuResult {
-        let parts: Vec<&str> = input.trim().split_whitespace().collect();
-        if parts.is_empty() {
-            return MenuResult::Continue;
-        }
+#[derive(Clone)]
+struct HostLimitIDs {
+    upload_id: u32,
+    download_id: u32,
+}
 
-        match parts[0].to_lowercase().as_str() {
-            "scan" => {
-                self.scan_network();
-                MenuResult::Continue
-            }
-            "show" => {
-                self.display_hosts();
-                MenuResult::Continue
-            }
-            "select" => {
-                if parts.len() < 2 {
-                    return MenuResult::Error("Usage: select <ip>".to_string());
-                }
-                self.select_host(parts[1]);
-                MenuResult::Continue
-            }
-            "deselect" => {
-                if parts.len() < 2 {
-                    return MenuResult::Error("Usage: deselect <ip>".to_string());
-                }
-                self.deselect_host(parts[1]);
-                MenuResult::Continue
-            }
-            "select-all" => {
-                self.select_all_hosts();
-                MenuResult::Continue
-            }
-            "clear" => {
-                self.clear_selections();
-                MenuResult::Continue
-            }
-            "limit" => {
-                if parts.len() < 2 {
-                    return MenuResult::Error("Usage: limit <value>".to_string());
-                }
-                let limit = parts[1..].join(" ");
-                self.apply_bandwidth_limit(&limit);
-                MenuResult::Continue
-            }
-            "help" => {
-                self.display();
-                MenuResult::Continue
-            }
-            "exit" => MenuResult::Exit,
-            _ => MenuResult::Error(format!("Unknown command: {}", parts[0])),
+impl Limiter {
+    pub fn new(interface: &str) -> Self {
+        Limiter {
+            interface: interface.to_string(),
+            host_map: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
-    fn available_commands(&self) -> Vec<&str> {
-        vec![
-            "scan",
-            "show",
-            "select",
-            "deselect",
-            "select-all",
-            "clear",
-            "limit",
-            "help",
-            "exit",
-        ]
+    pub fn limit(&self, host: &mut Host, direction: Direction, rate: u32) {
+        let host_ids = self.new_host_limit_ids(host, direction);
+
+        if (direction as u8 & Direction::Outgoing as u8) != 0 {
+            if let Some(tc) = &*BIN_TC {
+                let _ = Shell::execute_suppressed(
+                    &format!("{tc} class add dev {} parent 1:0 classid 1:{} htb rate {} burst {}", self.interface, host_ids.upload_id, rate, rate as f32 * 1.1),
+                    true,
+                );
+                let _ = Shell::execute_suppressed(
+                    &format!("{tc} filter add dev {} parent 1:0 protocol ip prio {} handle {} fw flowid 1:{}", self.interface, host_ids.upload_id, host_ids.upload_id, host_ids.upload_id),
+                    true,
+                );
+            }
+            if let Some(iptables) = &*BIN_IPTABLES {
+                let _ = Shell::execute_suppressed(
+                    &format!("{iptables} -t mangle -A POSTROUTING -s {} -j MARK --set-mark {}", host.ip, host_ids.upload_id),
+                    true,
+                );
+            }
+        }
+
+        if (direction as u8 & Direction::Incoming as u8) != 0 {
+            if let Some(tc) = &*BIN_TC {
+                let _ = Shell::execute_suppressed(
+                    &format!("{tc} class add dev {} parent 1:0 classid 1:{} htb rate {} burst {}", self.interface, host_ids.download_id, rate, rate as f32 * 1.1),
+                    true,
+                );
+                let _ = Shell::execute_suppressed(
+                    &format!("{tc} filter add dev {} parent 1:0 protocol ip prio {} handle {} fw flowid 1:{}", self.interface, host_ids.download_id, host_ids.download_id, host_ids.download_id),
+                    true,
+                );
+            }
+            if let Some(iptables) = &*BIN_IPTABLES {
+                let _ = Shell::execute_suppressed(
+                    &format!("{iptables} -t mangle -A PREROUTING -d {} -j MARK --set-mark {}", host.ip, host_ids.download_id),
+                    true,
+                );
+            }
+        }
+
+        host.limited = true;
+        self.host_map.lock().unwrap().insert(host.clone(), HostLimitInfo { ids: host_ids, rate: Some(rate), direction });
+    }
+
+    pub fn block(&self, host: &mut Host, direction: Direction) {
+        let host_ids = self.new_host_limit_ids(host, direction);
+
+        if let Some(iptables) = &*BIN_IPTABLES {
+            if (direction as u8 & Direction::Outgoing as u8) != 0 {
+                let _ = Shell::execute_suppressed(&format!("{iptables} -t filter -A FORWARD -s {} -j DROP", host.ip), true);
+            }
+            if (direction as u8 & Direction::Incoming as u8) != 0 {
+                let _ = Shell::execute_suppressed(&format!("{iptables} -t filter -A FORWARD -d {} -j DROP", host.ip), true);
+            }
+        }
+
+        host.blocked = true;
+        self.host_map.lock().unwrap().insert(host.clone(), HostLimitInfo { ids: host_ids, rate: None, direction });
+    }
+
+    pub fn unlimit(&self, host: &mut Host, direction: Direction) {
+        if !host.limited && !host.blocked {
+            return;
+        }
+
+        let mut map = self.host_map.lock().unwrap();
+        if let Some(info) = map.remove(host) {
+            if (direction as u8 & Direction::Outgoing as u8) != 0 {
+                self.delete_tc_class(info.ids.upload_id);
+                self.delete_iptables_entries(host, Direction::Outgoing, info.ids.upload_id);
+            }
+            if (direction as u8 & Direction::Incoming as u8) != 0 {
+                self.delete_tc_class(info.ids.download_id);
+                self.delete_iptables_entries(host, Direction::Incoming, info.ids.download_id);
+            }
+        }
+
+        host.limited = false;
+        host.blocked = false;
+    }
+
+    fn new_host_limit_ids(&self, host: &Host, direction: Direction) -> HostLimitIDs {
+        let mut map = self.host_map.lock().unwrap();
+        if map.contains_key(host) {
+            drop(map);
+            self.unlimit(&mut host.clone(), direction);
+        }
+
+        let id1 = self.generate_id(&[]);
+        let id2 = self.generate_id(&[id1]);
+        HostLimitIDs { upload_id: id1, download_id: id2 }
+    }
+
+    fn generate_id(&self, exclude: &[u32]) -> u32 {
+        let map = self.host_map.lock().unwrap();
+        let mut id = 1;
+        loop {
+            if exclude.contains(&id) {
+                id += 1;
+                continue;
+            }
+            if map.values().all(|x| x.ids.upload_id != id && x.ids.download_id != id) {
+                return id;
+            }
+            id += 1;
+        }
+    }
+
+    fn delete_tc_class(&self, id: u32) {
+        if let Some(tc) = &*BIN_TC {
+            let _ = Shell::execute_suppressed(&format!("{tc} filter del dev {} parent 1:0 prio {}", self.interface, id), true);
+            let _ = Shell::execute_suppressed(&format!("{tc} class del dev {} parent 1:0 classid 1:{}", self.interface, id), true);
+        }
+    }
+
+    fn delete_iptables_entries(&self, host: &Host, direction: Direction, id: u32) {
+        if let Some(iptables) = &*BIN_IPTABLES {
+            if (direction as u8 & Direction::Outgoing as u8) != 0 {
+                let _ = Shell::execute_suppressed(&format!("{iptables} -t mangle -D POSTROUTING -s {} -j MARK --set-mark {}", host.ip, id), true);
+                let _ = Shell::execute_suppressed(&format!("{iptables} -t filter -D FORWARD -s {} -j DROP", host.ip), true);
+            }
+            if (direction as u8 & Direction::Incoming as u8) != 0 {
+                let _ = Shell::execute_suppressed(&format!("{iptables} -t mangle -D PREROUTING -d {} -j MARK --set-mark {}", host.ip, id), true);
+                let _ = Shell::execute_suppressed(&format!("{iptables} -t filter -D FORWARD -d {} -j DROP", host.ip), true);
+            }
+        }
     }
 }

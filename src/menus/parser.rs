@@ -1,94 +1,188 @@
-/// Parses user input into commands and arguments
-pub struct CommandParser;
+use std::collections::HashMap;
+use crate::io::IO;
 
-impl CommandParser {
-    /// Parse a command string into a command and its arguments
-    pub fn parse(input: &str) -> (String, Vec<String>) {
-        let parts: Vec<&str> = input.trim().split_whitespace().collect();
-        
-        if parts.is_empty() {
-            return (String::new(), Vec::new());
-        }
-        
-        let command = parts[0].to_lowercase();
-        let arguments = parts[1..].iter().map(|s| s.to_string()).collect();
-        
-        (command, arguments)
-    }
-
-    /// Parse a bandwidth limit expression into bytes per second
-    pub fn parse_bandwidth_limit(input: &str) -> Option<u64> {
-        let input = input.trim().to_lowercase();
-        
-        // Handle special cases
-        if input == "none" || input == "0" {
-            return Some(0);
-        }
-        
-        if input == "full" || input == "unlimited" {
-            return Some(u64::MAX);
-        }
-        
-        // Parse numerical values with units
-        let mut number_str = String::new();
-        let mut unit_str = String::new();
-        let mut in_number = true;
-        
-        for c in input.chars() {
-            if in_number && (c.is_ascii_digit() || c == '.') {
-                number_str.push(c);
-            } else {
-                in_number = false;
-                if c.is_alphabetic() || c == '/' {
-                    unit_str.push(c);
-                }
-            }
-        }
-        
-        let number: f64 = number_str.parse().ok()?;
-        let unit = unit_str.trim();
-        
-        // Convert to bytes per second
-        let multiplier = match unit {
-            "b" | "bps" => 1.0,
-            "k" | "kb" | "kbit" | "kbits" => 1000.0,
-            "kbps" => 1000.0,
-            "m" | "mb" | "mbit" | "mbits" => 1_000_000.0,
-            "mbps" => 1_000_000.0,
-            "g" | "gb" | "gbit" | "gbits" => 1_000_000_000.0,
-            "gbps" => 1_000_000_000.0,
-            "b/s" => 1.0,
-            "kb/s" => 1000.0,
-            "mb/s" => 1_000_000.0,
-            "gb/s" => 1_000_000_000.0,
-            "bytes/s" => 8.0, // Convert bytes to bits
-            "kbytes/s" => 8_000.0,
-            "mbytes/s" => 8_000_000.0,
-            "gbytes/s" => 8_000_000_000.0,
-            _ => return None,
-        };
-        
-        Some((number * multiplier) as u64)
-    }
+#[derive(Debug, PartialEq, Eq)]
+pub enum CommandType {
+    ParameterCommand,
+    FlagCommand,
+    ParameterizedFlagCommand,
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+#[derive(Debug)]
+pub struct FlagCommand {
+    pub kind: CommandType,
+    pub identifier: String,
+    pub name: String,
+}
 
-    #[test]
-    fn test_parse_bandwidth_limit() {
-        assert_eq!(CommandParser::parse_bandwidth_limit("none"), Some(0));
-        assert_eq!(CommandParser::parse_bandwidth_limit("0"), Some(0));
-        assert_eq!(CommandParser::parse_bandwidth_limit("full"), Some(u64::MAX));
-        assert_eq!(CommandParser::parse_bandwidth_limit("unlimited"), Some(u64::MAX));
-        assert_eq!(CommandParser::parse_bandwidth_limit("10k"), Some(10_000));
-        assert_eq!(CommandParser::parse_bandwidth_limit("10 kb"), Some(10_000));
-        assert_eq!(CommandParser::parse_bandwidth_limit("10 kbps"), Some(10_000));
-        assert_eq!(CommandParser::parse_bandwidth_limit("10 mb"), Some(10_000_000));
-        assert_eq!(CommandParser::parse_bandwidth_limit("10 mbps"), Some(10_000_000));
-        assert_eq!(CommandParser::parse_bandwidth_limit("10 mb/s"), Some(10_000_000));
-        assert_eq!(CommandParser::parse_bandwidth_limit("10 mbytes/s"), Some(80_000_000));
-        assert_eq!(CommandParser::parse_bandwidth_limit("invalid"), None);
+#[derive(Debug)]
+pub struct ParameterCommand {
+    pub kind: CommandType,
+    pub name: String,
+}
+
+pub struct Subparser {
+    pub identifier: String,
+    pub parser: CommandParser,
+    pub handler: Option<Box<dyn Fn(HashMap<String, Option<String>>)>>,
+}
+
+pub struct CommandParser {
+    flag_commands: Vec<FlagCommand>,
+    parameter_commands: Vec<ParameterCommand>,
+    subparsers: Vec<Subparser>,
+}
+
+impl CommandParser {
+    pub fn new() -> Self {
+        CommandParser {
+            flag_commands: Vec::new(),
+            parameter_commands: Vec::new(),
+            subparsers: Vec::new(),
+        }
+    }
+
+    pub fn add_parameter(&mut self, name: &str) {
+        self.parameter_commands.push(ParameterCommand {
+            kind: CommandType::ParameterCommand,
+            name: name.to_string(),
+        });
+    }
+
+    pub fn add_flag(&mut self, identifier: &str, name: &str) {
+        self.flag_commands.push(FlagCommand {
+            kind: CommandType::FlagCommand,
+            identifier: identifier.to_string(),
+            name: name.to_string(),
+        });
+    }
+
+    pub fn add_parameterized_flag(&mut self, identifier: &str, name: &str) {
+        self.flag_commands.push(FlagCommand {
+            kind: CommandType::ParameterizedFlagCommand,
+            identifier: identifier.to_string(),
+            name: name.to_string(),
+        });
+    }
+
+    pub fn add_subparser<F>(&mut self, identifier: &str, handler: Option<F>) -> &mut CommandParser
+    where
+        F: Fn(HashMap<String, Option<String>>) + 'static,
+    {
+        let mut parser = CommandParser::new();
+        let sp = Subparser {
+            identifier: identifier.to_string(),
+            parser,
+            handler: handler.map(|f| Box::new(f) as Box<dyn Fn(HashMap<String, Option<String>>)>),
+        };
+
+        self.subparsers.push(sp);
+        let last_index = self.subparsers.len() - 1;
+        &mut self.subparsers[last_index].parser
+    }
+
+    pub fn parse(&self, command: Vec<String>) -> Option<HashMap<String, Option<String>>> {
+        let mut result: HashMap<String, Option<String>> = self
+            .flag_commands
+            .iter()
+            .map(|cmd| (cmd.name.clone(), None))
+            .chain(
+                self.parameter_commands
+                    .iter()
+                    .map(|cmd| (cmd.name.clone(), None)),
+            )
+            .collect();
+
+        let mut skip_next = false;
+
+        for (i, arg) in command.iter().enumerate() {
+            if skip_next {
+                skip_next = false;
+                continue;
+            }
+
+            if i == 0 {
+                for sp in &self.subparsers {
+                    if sp.identifier == *arg {
+                        let sub_args = command[i + 1..].to_vec();
+                        let parsed = sp.parser.parse(sub_args)?;
+                        if let Some(handler) = &sp.handler {
+                            handler(parsed.clone());
+                        }
+                        return Some(parsed);
+                    }
+                }
+            }
+
+            let mut is_processed = false;
+
+            for cmd in &self.flag_commands {
+                if cmd.identifier == *arg {
+                    match cmd.kind {
+                        CommandType::FlagCommand => {
+                            result.insert(cmd.name.clone(), Some("true".to_string()));
+                            is_processed = true;
+                            break;
+                        }
+                        CommandType::ParameterizedFlagCommand => {
+                            if i + 1 >= command.len() {
+                                IO::error(&format!(
+                                    "parameter for flag {}{}{} is missing",
+                                    IO::Fore::LIGHTYELLOW_EX,
+                                    cmd.name,
+                                    IO::Style::RESET_ALL
+                                ));
+                                return None;
+                            }
+                            result.insert(cmd.name.clone(), Some(command[i + 1].clone()));
+                            skip_next = true;
+                            is_processed = true;
+                            break;
+                        }
+                        _ => {}
+                    }
+                }
+            }
+
+            if !is_processed {
+                for cmd in &self.parameter_commands {
+                    if result.get(&cmd.name).unwrap().is_none() {
+                        result.insert(cmd.name.clone(), Some(arg.clone()));
+                        is_processed = true;
+                        break;
+                    }
+                }
+            }
+
+            if !is_processed {
+                IO::error(&format!(
+                    "{}{}{} is an unknown command.",
+                    IO::Fore::LIGHTYELLOW_EX,
+                    arg,
+                    IO::Style::RESET_ALL
+                ));
+                return None;
+            }
+        }
+
+        for cmd in &self.parameter_commands {
+            if result.get(&cmd.name).unwrap().is_none() {
+                IO::error(&format!(
+                    "parameter {}{}{} is missing",
+                    IO::Fore::LIGHTYELLOW_EX,
+                    cmd.name,
+                    IO::Style::RESET_ALL
+                ));
+                return None;
+            }
+        }
+
+        for cmd in &self.flag_commands {
+            if cmd.kind == CommandType::FlagCommand && result.get(&cmd.name).unwrap().is_none() {
+                result.insert(cmd.name.clone(), Some("false".to_string()));
+            }
+        }
+
+        Some(result)
     }
 }
