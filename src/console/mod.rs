@@ -1,7 +1,8 @@
-pub mod banner;
-pub mod chart;
 pub mod io;
+pub mod chart;
 pub mod shell;
+pub mod banner;
+
 
 pub use banner::display_banner;
 pub use chart::display_host_chart;

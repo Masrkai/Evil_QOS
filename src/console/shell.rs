@@ -1,6 +1,6 @@
-use std::process::{Command, Stdio};
+use crate::IO;
 use std::io::{self};
-use crate::io::IO;
+use std::process::{Command, Stdio};
 
 pub struct Shell;
 
