@@ -1,5 +1,5 @@
+use colored::*;
 use std::collections::HashMap;
-use crate::io::IO;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum CommandType {
@@ -24,7 +24,9 @@ pub struct ParameterCommand {
 pub struct Subparser {
     pub identifier: String,
     pub parser: CommandParser,
-    pub handler: Option<Box<dyn Fn(HashMap<String, Option<String>>)>>,
+    // pub handler: Option<Box<dyn Fn(HashMap<String, Option<String>>)>>,
+    pub handler: Option<Box<dyn Fn(HashMap<String, Option<String>>) + Send + Sync>>,
+
 }
 
 pub struct CommandParser {
@@ -65,15 +67,16 @@ impl CommandParser {
         });
     }
 
+
     pub fn add_subparser<F>(&mut self, identifier: &str, handler: Option<F>) -> &mut CommandParser
     where
-        F: Fn(HashMap<String, Option<String>>) + 'static,
+        F: Fn(HashMap<String, Option<String>>) + Send + Sync + 'static,
     {
         let mut parser = CommandParser::new();
         let sp = Subparser {
             identifier: identifier.to_string(),
             parser,
-            handler: handler.map(|f| Box::new(f) as Box<dyn Fn(HashMap<String, Option<String>>)>),
+            handler: handler.map(|f: F| Box::new(f) as Box<dyn Fn(HashMap<String, Option<String>>) + Send + Sync>),
         };
 
         self.subparsers.push(sp);
@@ -126,12 +129,10 @@ impl CommandParser {
                         }
                         CommandType::ParameterizedFlagCommand => {
                             if i + 1 >= command.len() {
-                                IO::error(&format!(
-                                    "parameter for flag {}{}{} is missing",
-                                    IO::Fore::LIGHTYELLOW_EX,
-                                    cmd.name,
-                                    IO::Style::RESET_ALL
-                                ));
+                                eprintln!(
+                                    "parameter for flag {} is missing",
+                                    cmd.name.bright_yellow()
+                                );
                                 return None;
                             }
                             result.insert(cmd.name.clone(), Some(command[i + 1].clone()));
@@ -155,24 +156,14 @@ impl CommandParser {
             }
 
             if !is_processed {
-                IO::error(&format!(
-                    "{}{}{} is an unknown command.",
-                    IO::Fore::LIGHTYELLOW_EX,
-                    arg,
-                    IO::Style::RESET_ALL
-                ));
+                eprintln!("{} is an unknown command.", arg.bright_yellow());
                 return None;
             }
         }
 
         for cmd in &self.parameter_commands {
             if result.get(&cmd.name).unwrap().is_none() {
-                IO::error(&format!(
-                    "parameter {}{}{} is missing",
-                    IO::Fore::LIGHTYELLOW_EX,
-                    cmd.name,
-                    IO::Style::RESET_ALL
-                ));
+                eprintln!("parameter {} is missing", cmd.name.bright_yellow());
                 return None;
             }
         }

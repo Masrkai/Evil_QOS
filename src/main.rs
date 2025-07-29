@@ -3,6 +3,7 @@
 mod cli;
 mod utils;
 mod menus;
+mod common;
 mod banner;
 mod console;
 mod networking;

@@ -2,8 +2,8 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use crate::common::globals::{BIN_IPTABLES, BIN_TC};
-use crate::host::Host;
-use crate::shell::Shell;
+use crate::networking::Host;
+use crate::console::Shell;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Direction {

@@ -1,5 +1,5 @@
 use once_cell::sync::Lazy;
-use crate::shell::Shell;
+use crate::console::shell::Shell;
 
 pub static BROADCAST: &str = "ff:ff:ff:ff:ff:ff";
 pub static IP_FORWARD_LOC: &str = "net.ipv4.ip_forward";

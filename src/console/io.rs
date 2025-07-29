@@ -57,20 +57,37 @@ impl IO {
     }
 
     /// Prompts the user for input, returning the trimmed response.
-    pub fn input(prompt: &str) -> String {
-        let prompt_text = if COLORLESS.load(Ordering::Relaxed) {
-            IO::remove_colors(prompt)
-        } else {
-            prompt.to_string()
-        };
+    // pub fn input(prompt: &str) -> String {
+    //     let prompt_text = if COLORLESS.load(Ordering::Relaxed) {
+    //         IO::remove_colors(prompt)
+    //     } else {
+    //         prompt.to_string()
+    //     };
 
-        print!("{}", prompt_text);
-        io::stdout().flush().expect("Failed to flush stdout");
+    //     print!("{}", prompt_text);
+    //     io::stdout().flush().expect("Failed to flush stdout");
 
-        let mut buffer = String::new();
-        io::stdin().read_line(&mut buffer).expect("Failed to read input");
-        buffer.trim_end().to_string()
-    }
+    //     let mut buffer = String::new();
+    //     io::stdin().read_line(&mut buffer).expect("Failed to read input");
+    //     buffer.trim_end().to_string()
+    // }
+
+
+    pub fn input(prompt: &str) -> Result<String, io::Error> {
+    let prompt_text = if COLORLESS.load(Ordering::Relaxed) {
+        IO::remove_colors(prompt)
+    } else {
+        prompt.to_string()
+    };
+
+    print!("{}", prompt_text);
+    io::stdout().flush()?; // propagates error if any
+
+    let mut buffer = String::new();
+    io::stdin().read_line(&mut buffer)?; // propagates error if any
+    Ok(buffer.trim_end().to_string())
+   }
+
 
     /// Clears the terminal using ANSI escape codes or fallback to `clear` command.
     pub fn clear() {

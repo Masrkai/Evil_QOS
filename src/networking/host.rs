@@ -1,4 +1,4 @@
-use crate::io::IO;
+use colored::*;
 use std::fmt;
 use std::hash::{Hash, Hasher};
 
@@ -28,15 +28,11 @@ impl Host {
 
     pub fn pretty_status(&self) -> String {
         if self.limited {
-            format!(
-                "{}Limited{}",
-                IO::Fore::LIGHTRED_EX,
-                IO::Style::RESET_ALL
-            )
+            "Limited".bright_red().to_string()
         } else if self.blocked {
-            format!("{}Blocked{}", IO::Fore::RED, IO::Style::RESET_ALL)
+            "Blocked".red().to_string()
         } else {
-            "Free".to_string()
+            "Free".normal().to_string()
         }
     }
 }

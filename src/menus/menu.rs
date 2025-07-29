@@ -1,7 +1,6 @@
-use crate::io::IO;
-use crate::parser::CommandParser;
+use crate::IO;
+use crate::menus::parser::CommandParser;
 use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
-use std::io;
 
 pub struct CommandMenu {
     prompt: String,
