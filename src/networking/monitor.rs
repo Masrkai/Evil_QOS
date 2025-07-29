@@ -3,11 +3,50 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use crate::networking::Host;
-use crate::IO;
 use tokio::time;
 use pcap::{Capture, Device};
 
-use super::utils::{BitRate, ByteValue};
+// Define BitRate and ByteValue structs with their required methods
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BitRate(u64); // bits per second
+
+impl BitRate {
+    pub fn zero() -> Self {
+        BitRate(0)
+    }
+    
+    pub fn from_bits(bits: u64) -> Self {
+        BitRate(bits)
+    }
+    
+    pub fn to_bits(&self) -> u64 {
+        self.0
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ByteValue(u64); // bytes
+
+impl ByteValue {
+    pub fn zero() -> Self {
+        ByteValue(0)
+    }
+    
+    pub fn from_bytes(bytes: u64) -> Self {
+        ByteValue(bytes)
+    }
+    
+    pub fn to_bits(&self) -> u64 {
+        self.0 * 8
+    }
+}
+
+// Implement Add trait for ByteValue to support += operations
+impl std::ops::AddAssign for ByteValue {
+    fn add_assign(&mut self, other: Self) {
+        self.0 += other.0;
+    }
+}
 
 pub struct BandwidthMonitorResult {
     pub upload_rate: BitRate,
@@ -19,6 +58,22 @@ pub struct BandwidthMonitorResult {
     upload_temp_size: ByteValue,
     download_temp_size: ByteValue,
     last_now: Instant,
+}
+
+impl Clone for BandwidthMonitorResult {
+    fn clone(&self) -> Self {
+        Self {
+            upload_rate: self.upload_rate,
+            upload_total_size: self.upload_total_size,
+            upload_total_count: self.upload_total_count,
+            download_rate: self.download_rate,
+            download_total_size: self.download_total_size,
+            download_total_count: self.download_total_count,
+            upload_temp_size: self.upload_temp_size,
+            download_temp_size: self.download_temp_size,
+            last_now: self.last_now,
+        }
+    }
 }
 
 pub struct BandwidthMonitor {
@@ -122,13 +177,15 @@ impl BandwidthMonitor {
                 }
                 time::sleep(Duration::from_millis(10)).await;
             }
+            println!("Bandwidth monitor stopped"); // Replaced IO.ok with println!
         });
-        IO.ok("Bandwidth monitor started");
+        
+        println!("Bandwidth monitor started"); // Replaced IO.ok with println!
     }
 
     pub fn stop(&self) {
         *self.running.lock().unwrap() = false;
-        IO.ok("Bandwidth monitor stopped");
+        println!("Bandwidth monitor stopped"); // Replaced IO.ok with println!
     }
 }
 

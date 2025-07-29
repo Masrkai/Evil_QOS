@@ -16,6 +16,7 @@ futures = "0.3.31"
 nix = { version = "0.30.1", features = ["user"] }
 
 chrono = "0.4.41"
+dns-lookup = "2.0.4"
 parking_lot = "0.12.4"
 
 # Core packet manipulation library
