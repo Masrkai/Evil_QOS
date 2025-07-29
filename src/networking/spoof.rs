@@ -5,21 +5,23 @@ use parking_lot::Mutex;
 use tokio::task;
 use tokio::time::sleep;
 
-use crate::host::Host;
-use crate::global::BROADCAST;
-use pnet::packet::arp::{ArpHardwareTypes, ArpOperations, MutableArpPacket};
-use pnet::packet::ethernet::{EtherTypes, MutableEthernetPacket};
-use pnet::packet::Packet;
-use pnet::util::MacAddr;
-use pnet::datalink::{self, Channel};
+use crate::networking::host::Host;
+use crate::common::globals::*;
+
+
+use pnet::{ 
+    util::MacAddr,
+    datalink::{self, Channel},
+    packet::{arp::{ArpHardwareTypes, ArpOperations, MutableArpPacket}, ethernet::{EtherTypes, MutableEthernetPacket}, Packet},
+};
 
 pub struct ArpSpoofer {
-    interface_name: String,
     gateway_ip: String,
-    gateway_mac: String,
     interval: Duration,
-    hosts: Arc<Mutex<HashSet<Host>>>,
+    gateway_mac: String,
+    interface_name: String,
     running: Arc<Mutex<bool>>,
+    hosts: Arc<Mutex<HashSet<Host>>>,
 }
 
 impl ArpSpoofer {

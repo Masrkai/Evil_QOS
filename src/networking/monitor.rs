@@ -2,10 +2,12 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use crate::host::Host;
-use crate::io::IO;
+use crate::networking::Host;
+use crate::IO;
 use tokio::time;
 use pcap::{Capture, Device};
+
+use super::utils::{BitRate, ByteValue};
 
 pub struct BandwidthMonitorResult {
     pub upload_rate: BitRate,

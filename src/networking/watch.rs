@@ -2,8 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-
-use crate::host::Host;
+use crate::networking::host::Host;
 
 pub struct HostWatcher {
     scanner: Arc<dyn HostScanner + Send + Sync>,
@@ -70,7 +69,7 @@ impl HostWatcher {
         self.log_list.lock().unwrap().clone()
     }
 
-    pub fn add(&self, host: Host) {
+    pub fn add(&self, mut host: Host) {
         host.watched = true;
         self.hosts.lock().unwrap().insert(host);
     }

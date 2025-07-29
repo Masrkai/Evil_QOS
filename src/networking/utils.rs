@@ -1,10 +1,13 @@
 use std::net::Ipv4Addr;
 use std::process::Command;
+use pnet::datalink::NetworkInterface;
+
+
 use std::str;
 use regex::Regex;
 use pnet::datalink;
-use crate::shell::Shell;
-use crate::global::{BIN_IPTABLES, BIN_TC, BIN_SYSCTL, IP_FORWARD_LOC};
+use crate::console::shell::Shell;
+use crate::common::globals::*;
 
 pub fn get_default_interface() -> Option<String> {
     datalink::interfaces().into_iter().find(|iface| iface.is_up() && !iface.ips.is_empty()).map(|iface| iface.name)
@@ -18,7 +21,7 @@ pub fn get_default_gateway() -> Option<String> {
 pub fn get_default_netmask(interface: &str) -> Option<String> {
     datalink::interfaces().into_iter()
         .find(|iface| iface.name == interface)
-        .and_then(|iface| iface.ips.iter().find(|ip| ip.is_ipv4()).map(|ip| ip.netmask().to_string()))
+        .and_then(|iface| iface.ips.iter().find(|ip| ip.is_ipv4()).map(|ip| ip.mask().to_string()))
 }
 
 pub fn exists_interface(interface: &str) -> bool {
@@ -127,7 +130,7 @@ impl BitRate {
         let s = self.to_string();
         let num_len = s.chars().take_while(|c| c.is_digit(10)).count();
         let (num, unit) = s.split_at(num_len);
-        format!("{}{}", format!(fmt, num.parse::<u64>().unwrap()), unit)
+        format!("{}{}", format!("{} {}", fmt, num.parse::<u64>().unwrap()), unit)
     }
 }
 
@@ -196,7 +199,7 @@ impl ByteValue {
         let s = self.to_string();
         let num_len = s.chars().take_while(|c| c.is_digit(10)).count();
         let (num, unit) = s.split_at(num_len);
-        format!("{}{}", format!(fmt, num.parse::<u64>().unwrap()), unit)
+        format!("{}{}", format!("{} {}", fmt, num.parse::<u64>().unwrap()), unit)
     }
 }
 
@@ -223,7 +226,6 @@ impl std::fmt::Display for ByteValue {
     }
 }
 
-use pnet::datalink::NetworkInterface;
 
 pub fn get_mac_by_ip(interface: &str, ip: &str) -> Option<String> {
     // Would require raw packet crafting similar to scapy
